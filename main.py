@@ -1,86 +1,86 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-import requests
 import json
-import time
-import os
+import numpy as np
+import requests
+from sentence_transformers import SentenceTransformer
+from fastapi import FastAPI
+from pydantic import BaseModel
+from typing import List
 
+# Initialize the embedding model
+model = SentenceTransformer("all-MiniLM-L6-v2")
+
+# Load the coffee knowledge base (RAG)
+with open("coffee_rag_vectors.json", "r", encoding="utf-8") as f:
+    vector_db = json.load(f)
+
+# FastAPI app setup
 app = FastAPI()
 
-# Enable CORS so your frontend can call the API from any origin
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# In-memory session memory (resets on server restart)
-chat_memory = {}
-
-# Use your Ollama Cloud API key
-OLLAMA_API_KEY = "98818557107e4c4bb58b9e5d869d682b.9mRsxxetbanPaOn16bB2Z45K"
-CLOUD_MODEL = "gemma3:4b"  # cloud model name
-
-class ChatRequest(BaseModel):
+# Define the request structure
+class QueryRequest(BaseModel):
     message: str
     session_id: str
 
+# Ollama Cloud API configuration
+OLLAMA_API_URL = "https://api.ollama.com/v1/chat/completions"
+OLLAMA_API_KEY = "98818557107e4c4bb58b9e5d869d682b.9mRsxxetbanPaOn16bB2Z45K"  # Replace with your actual API key
+
+# Model to use (example: phi3:mini)
+CLOUD_MODEL = "phi3:mini"  
+
+# Cosine similarity function for RAG (Retrieval-Augmented Generation)
+def cosine_similarity(a, b):
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+# Search function to find relevant chunks from the RAG vector DB
+def search_knowledge(query_embedding, db, top_k=3):
+    scores = []
+    for item in db:
+        score = cosine_similarity(query_embedding, item["embedding"])
+        scores.append((score, item["text"]))
+    scores.sort(reverse=True, key=lambda x: x[0])
+    return [text for _, text in scores[:top_k]]
+
+# Function to get AI response from Ollama Cloud
+def get_ai_response(context, message):
+    headers = {
+        "Authorization": f"Bearer {OLLAMA_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    data = {
+        "model": CLOUD_MODEL,  # Replace this with the model you are using
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": message},
+            {"role": "assistant", "content": context}
+        ],
+        "options": {
+            "num_predict": 200,
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "top_k": 40
+        }
+    }
+
+    r = requests.post(OLLAMA_API_URL, headers=headers, json=data, timeout=60)
+    response = r.json()
+    return response.get("completion") or response.get("text") or str(response)
+
+# Chat endpoint for FastAPI
 @app.post("/chat_stream")
-def chat_stream(req: ChatRequest):
-    """
-    Stream AI responses token by token for the frontend.
-    """
-    session_history = chat_memory.get(req.session_id, [])
-    # Build prompt with session history
-    prompt = "\n".join(session_history + [f"You: {req.message}\nBot:"])
+async def chat_stream(query: QueryRequest):
+    # Step 1: Embed the user's query to get the embedding
+    query_embedding = model.encode(query.message)
 
-    def generate():
-        try:
-            # Call Ollama Cloud API
-            r = requests.post(
-                "https://api.ollama.com/generate",
-                headers={"Authorization": f"Bearer {OLLAMA_API_KEY}"},
-                json={
-                    "model": CLOUD_MODEL,
-                    "prompt": prompt,
-                    "stream": True,
-                    "options": {
-                        "num_predict": 200,
-                        "temperature": 0.7,
-                        "top_p": 0.9,
-                        "top_k": 40
-                    }
-                },
-                stream=True,
-                timeout=120
-            )
+    # Step 2: Search for the most relevant chunks from the RAG vector DB
+    relevant_chunks = search_knowledge(query_embedding, vector_db)
 
-            bot_response = ""
-            for line in r.iter_lines():
-                if line:
-                    try:
-                        data = json.loads(line)
-                        token = data.get("token", "")
-                        if token:
-                            bot_response += token
-                            yield token
-                            time.sleep(0.01)  # smooth typing effect
-                    except json.JSONDecodeError:
-                        continue
+    # Step 3: Combine the relevant chunks into context
+    context = "\n".join(relevant_chunks)
 
-            # Update session memory (last 10 exchanges)
-            session_history.append(f"You: {req.message}")
-            session_history.append(f"Bot: {bot_response.strip()}")
-            chat_memory[req.session_id] = session_history[-20:]
+    # Step 4: Get AI response from Ollama
+    ai_response = get_ai_response(context, query.message)
 
-        except requests.exceptions.Timeout:
-            yield "\n[AI took too long to respond]\n"
-        except requests.exceptions.ConnectionError:
-            yield "\n[AI service not available]\n"
-        except Exception as e:
-            yield f"\n[Unexpected error: {str(e)}]\n"
-
-    return StreamingResponse(generate(), media_type="text/plain")
+    # Return the AI response
+    return {"response": ai_response}
