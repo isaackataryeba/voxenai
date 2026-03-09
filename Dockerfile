@@ -14,5 +14,8 @@ COPY . .
 # Expose the port Hugging Face expects
 EXPOSE 7860
 
+# Set the Groq API key as environment variable (set via cPanel or deployment config)
+# ENV GROQ_API_KEY="your-key-here"
+
 # Start FastAPI with uvicorn
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]

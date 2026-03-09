@@ -14,10 +14,9 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import numpy as np
 
 try:
-    from transformers import pipeline
-    text_generator = None  # Will be initialized on first use
+    from groq import Groq
 except ImportError:
-    text_generator = None
+    Groq = None
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -42,19 +41,15 @@ embeddings = None
 BASE_DIR = Path(__file__).resolve().parent
 RAG_FILE = Path(os.environ.get("RAG_FILE") or str(BASE_DIR / "coffee_rag_vectors.json"))
 
-# ---------- HUGGING FACE CONFIG ----------
+# ---------- GROQ CONFIG ----------
 
-HF_MODEL = os.environ.get("HF_MODEL", "mistralai/Mistral-7B-Instruct-v0.1")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")  # Fast, reliable, current model
 
-def get_text_generator():
-    global text_generator
-    if text_generator is None and 'pipeline' in dir():
-        try:
-            logger.info("Loading Hugging Face model...")
-            text_generator = pipeline("text-generation", model=HF_MODEL, device_map="auto")
-        except Exception as e:
-            logger.error(f"Failed to load HF model: {e}")
-    return text_generator
+if GROQ_API_KEY and Groq:
+    groq_client = Groq(api_key=GROQ_API_KEY)
+else:
+    groq_client = None
 
 # ---------- REQUEST MODELS ----------
 
@@ -244,6 +239,10 @@ def get_friendly_transition() -> str:
 
 def get_ai_response(context: str, message: str, country: str = "", ministry: str = "", weather_context: str = "") -> str:
 
+    if not groq_client:
+        logger.error("Groq API not configured")
+        return "AI service is not configured. Please set GROQ_API_KEY environment variable."
+
     country_context = f" (focusing on {country}" + (f" guidelines from {ministry}" if ministry else "") + ")" if country else ""
     
     weather_note = ""
@@ -262,32 +261,24 @@ def get_ai_response(context: str, message: str, country: str = "", ministry: str
         f"{weather_note}"
     )
 
-    prompt = (
-        f"[CONTEXT]\n{context}\n\n"
-        f"[INSTRUCTION]\n{system_prompt}\n\n"
-        f"[QUESTION]\n{message}\n\n"
-        f"[ANSWER]\n"
-    )
+    user_content = f"Context from agricultural guidelines:\n{context}\n\nFarmer's Question:\n{message}"
 
     try:
-        logger.info(f"Calling Hugging Face with model: {HF_MODEL}")
+        logger.info(f"Calling Groq with model: {GROQ_MODEL}")
         
-        generator = get_text_generator()
-        if not generator:
-            return "Agricultural AI service is loading. Please try again in a moment."
-        
-        result = generator(
-            prompt,
-            max_length=512,
+        response = groq_client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content}
+            ],
+            model=GROQ_MODEL,
             temperature=0.3,
-            do_sample=True,
-            top_p=0.9,
-            num_return_sequences=1
+            max_tokens=512
         )
 
-        ai_response = result[0]["generated_text"].replace(prompt, "").strip()
+        ai_response = response.choices[0].message.content.strip()
         
-        logger.info(f"HF response received successfully")
+        logger.info(f"Groq response received successfully")
         
         # Add resource links if country is known
         if country:
