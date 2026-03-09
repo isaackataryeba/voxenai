@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FarmAI Chat</title>
+  <style>
+    :root {
+      --chat-bg: #ffffff;
+      --panel-bg: #ffffff;
+      --panel-border: rgba(0, 122, 59, 0.2);
+      --text-color: #111111;
+      --accent: #1c9a3f;
+      --accent-dark: #0e6a25;
+      --shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
+      --radius: 16px;
+      --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--font);
+    }
+
+    /* Floating action button */
+    #chatToggle {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      border: none;
+      background: linear-gradient(135deg, var(--accent), #7dd571);
+      box-shadow: var(--shadow);
+      cursor: pointer;
+      z-index: 999999;
+      display: grid;
+      place-items: center;
+      color: white;
+      font-size: 32px;
+    }
+
+    #chatPanel {
+      position: fixed;
+      right: 24px;
+      bottom: 100px;
+      width: min(400px, calc(100vw - 48px));
+      max-height: 70vh;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      display: none;
+      flex-direction: column;
+      z-index: 999999;
+    }
+
+    #chatHeader {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(28, 154, 63, 0.25);
+      background: rgba(255, 255, 255, 0.97);
+      color: var(--text-color);
+      font-weight: 600;
+    }
+
+    #chatHeader button {
+      border: none;
+      background: transparent;
+      color: rgba(28, 154, 63, 0.9);
+      cursor: pointer;
+      font-size: 18px;
+      padding: 4px 8px;
+    }
+
+    #chatHistory {
+      flex: 1;
+      padding: 12px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .message {
+      max-width: 100%;
+      padding: 10px 14px;
+      border-radius: 18px;
+      line-height: 1.4;
+      font-size: 14px;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+
+    .message.user {
+      align-self: flex-end;
+      background: rgba(28, 154, 63, 0.15);
+      border: 1px solid rgba(28, 154, 63, 0.35);
+      color: var(--text-color);
+    }
+
+    /* Links and headings in responses */
+    .message.bot a {
+      color: var(--accent);
+      text-decoration: underline;
+    }
+
+    .message.bot h1,
+    .message.bot h2,
+    .message.bot h3 {
+      color: var(--accent-dark);
+      margin: 0 0 6px;
+    }
+
+    .message.bot {
+      align-self: flex-start;
+      background: rgba(245, 245, 245, 0.96);
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      color: var(--text-color);
+    }
+
+    .message.typing {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .typing-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      opacity: 0.2;
+      animation: typing 1.2s infinite;
+    }
+
+    .typing-dot:nth-child(2) {
+      animation-delay: 0.15s;
+    }
+
+    .typing-dot:nth-child(3) {
+      animation-delay: 0.3s;
+    }
+
+    @keyframes typing {
+      0%, 60%, 100% {
+        opacity: 0.2;
+        transform: translateY(0);
+      }
+      30% {
+        opacity: 1;
+        transform: translateY(-4px);
+      }
+    }
+
+    #chatInputWrapper {
+      display: flex;
+      gap: 8px;
+      padding: 12px;
+      border-top: 1px solid rgba(0, 0, 0, 0.08);
+      background: rgba(255, 255, 255, 0.92);
+    }
+
+    #chatInput {
+      flex: 1;
+      min-height: 40px;
+      border-radius: 999px;
+      border: 1px solid rgba(28, 154, 63, 0.25);
+      padding: 10px 14px;
+      background: rgba(255, 255, 255, 0.9);
+      color: var(--text-color);
+      font-size: 14px;
+      outline: none;
+    }
+
+    #chatInput::placeholder {
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    #sendBtn {
+      border: none;
+      border-radius: 999px;
+      padding: 0 16px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+      color: white;
+      cursor: pointer;
+      font-weight: 600;
+      min-width: 72px;
+      transition: transform 0.1s ease, filter 0.1s ease;
+    }
+    #sendBtn:hover {
+      filter: brightness(1.06);
+      transform: translateY(-1px);
+    }
+    #sendBtn:active {
+      transform: translateY(0);
+    }
+
+    #errorBar {
+      padding: 10px 14px;
+      background: rgba(255, 80, 80, 0.12);
+      color: rgba(255, 220, 220, 0.95);
+      font-size: 13px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <button id="chatToggle" aria-label="Open chat">˙✦</button>
+
+  <div id="chatPanel" role="dialog" aria-label="Chat assistant">
+    <div id="chatHeader">
+      <span>AI Farm Assistant</span>
+      <button id="closeBtn" aria-label="Close chat">✕</button>
+    </div>
+
+    <div id="errorBar" role="alert"></div>
+
+    <div id="locationBar" style="padding: 10px 14px; background: rgba(28, 154, 63, 0.08); border-bottom: 1px solid rgba(28, 154, 63, 0.15); display: none;">
+      <input type="text" id="locationInput" placeholder="Enter your location (e.g., Kampala, Uganda)" style="width: 100%; padding: 8px; border: 1px solid rgba(28, 154, 63, 0.3); border-radius: 8px; font-size: 12px; font-family: inherit;">
+      <small style="display: block; margin-top: 4px; color: rgba(28, 154, 63, 0.7);">Share your location for weather-based farming advice</small>
+    </div>
+
+    <div id="chatHistory" aria-live="polite" aria-atomic="false"></div>
+
+    <div id="chatInputWrapper">
+      <textarea id="chatInput" rows="1" placeholder="Ask a question..."></textarea>
+      <button id="sendBtn">Send</button>
+    </div>
+  </div>
+
+  <script>
+    const chatToggle = document.getElementById("chatToggle");
+    const chatPanel = document.getElementById("chatPanel");
+    const closeBtn = document.getElementById("closeBtn");
+    const chatHistory = document.getElementById("chatHistory");
+    const chatInput = document.getElementById("chatInput");
+    const sendBtn = document.getElementById("sendBtn");
+    const errorBar = document.getElementById("errorBar");
+    
+    let userLocation = null;  // Store user's location for weather data
+
+    const API_PATHS = [
+      "/chat",
+      "/api/chat",
+    ];
+    let currentApiPath = API_PATHS[0];
+
+    function getApiUrl() {
+      return currentApiPath;
+    }
+
+    function showPanel() {
+      chatPanel.style.display = "flex";
+      chatInput.focus();
+      // Show location bar on first visit
+      if (!userLocation && !localStorage.getItem("voxenai_location_shown")) {
+        document.getElementById("locationBar").style.display = "block";
+        localStorage.setItem("voxenai_location_shown", "true");
+      }
+    }
+
+    function hidePanel() {
+      chatPanel.style.display = "none";
+      clearError();
+      hideTypingIndicator();
+    }
+
+    function showError(message) {
+      errorBar.textContent = message;
+      errorBar.style.display = "block";
+    }
+
+    function clearError() {
+      errorBar.textContent = "";
+      errorBar.style.display = "none";
+    }
+
+    let typingIndicator = null;
+
+    function appendMessage(text, role) {
+      const msg = document.createElement("div");
+      msg.className = `message ${role}`;
+      msg.textContent = text;
+      chatHistory.appendChild(msg);
+      chatHistory.scrollTop = chatHistory.scrollHeight;
+      return msg;
+    }
+
+    function showTypingIndicator() {
+      if (typingIndicator) return;
+      typingIndicator = document.createElement("div");
+      typingIndicator.className = "message bot typing";
+
+      const dots = document.createElement("div");
+      dots.style.display = "flex";
+      dots.style.gap = "4px";
+      for (let i = 0; i < 3; i++) {
+        const dot = document.createElement("span");
+        dot.className = "typing-dot";
+        dots.appendChild(dot);
+      }
+
+      const label = document.createElement("span");
+      label.textContent = "AI is typing...";
+      label.style.opacity = "0.75";
+
+      typingIndicator.appendChild(dots);
+      typingIndicator.appendChild(label);
+      chatHistory.appendChild(typingIndicator);
+      chatHistory.scrollTop = chatHistory.scrollHeight;
+    }
+
+    function hideTypingIndicator() {
+      if (!typingIndicator) return;
+      typingIndicator.remove();
+      typingIndicator = null;
+    }
+
+    async function fetchResponse(message, attempt = 0) {
+      const apiPath = API_PATHS[attempt];
+      const payload = { message };
+      
+      // Include location if available
+      if (userLocation) {
+        payload.location = userLocation;
+      }
+      
+      const res = await fetch(apiPath, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const text = await res.text();
+
+      // If the server returns HTML (e.g., an error page), try the next endpoint.
+      const trimmed = text.trim();
+      if (trimmed.startsWith("<")) {
+        if (attempt + 1 < API_PATHS.length) {
+          return fetchResponse(message, attempt + 1);
+        }
+        throw new Error(
+          `Received HTML response from ${apiPath}; check that the app is running and ${apiPath} returns JSON. Response snippet: ${trimmed.slice(0, 200)}`
+        );
+      }
+
+      if (!res.ok) {
+        // Retry on 404 in case the path differs.
+        if (res.status === 404 && attempt + 1 < API_PATHS.length) {
+          return fetchResponse(message, attempt + 1);
+        }
+        throw new Error(
+          `HTTP ${res.status} from ${apiPath}: ${text.substring(0, 200)}`
+        );
+      }
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error(text || "Invalid JSON response");
+      }
+
+      if (!data || typeof data.response !== "string") {
+        throw new Error("Could not generate response");
+      }
+
+      return data.response;
+    }
+
+    async function sendMessage() {
+      const message = chatInput.value.trim();
+      if (!message) return;
+
+      appendMessage(message, "user");
+      chatInput.value = "";
+      clearError();
+      showTypingIndicator();
+
+      try {
+        const responseText = await fetchResponse(message);
+        hideTypingIndicator();
+        appendMessage(responseText, "bot");
+      } catch (err) {
+        hideTypingIndicator();
+        console.error(err);
+        appendMessage("Could not generate response. Try again.", "bot");
+        showError(err.message || "Could not generate response");
+      }
+    }
+
+    chatToggle.addEventListener("click", () => {
+      if (chatPanel.style.display === "flex") {
+        hidePanel();
+      } else {
+        showPanel();
+      }
+    });
+
+    closeBtn.addEventListener("click", hidePanel);
+    
+    // Location input handling
+    const locationInput = document.getElementById("locationInput");
+    if (locationInput) {
+      locationInput.addEventListener("blur", (e) => {
+        const location = e.target.value.trim();
+        if (location) {
+          userLocation = location;
+          document.getElementById("locationBar").style.display = "none";
+          appendMessage(`Got it! I'll use weather data for "${location}" to give you better farming advice.`, "bot");
+          localStorage.setItem("voxenai_user_location", location);
+        }
+      });
+      
+      locationInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          locationInput.blur();
+        }
+      });
+      
+      // Load saved location
+      const savedLocation = localStorage.getItem("voxenai_user_location");
+      if (savedLocation) {
+        userLocation = savedLocation;
+      }
+    }
+
+    sendBtn.addEventListener("click", sendMessage);
+    chatInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        sendMessage();
+      }
+    });
+  </script>
+</body>
+</html>
