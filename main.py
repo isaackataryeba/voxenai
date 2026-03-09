@@ -278,11 +278,12 @@ def get_ai_response(context: str, message: str, country: str = "", ministry: str
                 "content": user_content
             }
         ],
-        "temperature": 0.3
+        "temperature": 0.3,
+        "site_url": "https://huggingface.co/spaces/voxenai/farm_assistant_chatbot"
     }
 
     try:
-
+        logger.info(f"Calling OpenRouter with model: {OPENROUTER_MODEL}")
         response = requests.post(
             OPENROUTER_API_URL,
             headers=headers,
@@ -290,6 +291,7 @@ def get_ai_response(context: str, message: str, country: str = "", ministry: str
             timeout=60
         )
 
+        logger.info(f"OpenRouter response status: {response.status_code}")
         response.raise_for_status()
 
         data = response.json()
@@ -309,7 +311,7 @@ def get_ai_response(context: str, message: str, country: str = "", ministry: str
         logger.error("AI request failed: %s", str(e))
 
         try:
-            logger.error("OpenRouter response: %s", response.text)
+            logger.error("OpenRouter response code: %s, body: %s", response.status_code if 'response' in locals() else 'N/A', response.text if 'response' in locals() else 'N/A')
         except Exception:
             pass
 
