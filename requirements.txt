@@ -6,3 +6,5 @@ pydantic
 sentence-transformers
 pypdf
 requests
+transformers
+torch

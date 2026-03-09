@@ -14,6 +14,12 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import numpy as np
 
 try:
+    from transformers import pipeline
+    text_generator = None  # Will be initialized on first use
+except ImportError:
+    text_generator = None
+
+try:
     from sentence_transformers import SentenceTransformer
 except ImportError:
     SentenceTransformer = None
@@ -36,16 +42,19 @@ embeddings = None
 BASE_DIR = Path(__file__).resolve().parent
 RAG_FILE = Path(os.environ.get("RAG_FILE") or str(BASE_DIR / "coffee_rag_vectors.json"))
 
-# ---------- OPENROUTER CONFIG (FIXED) ----------
+# ---------- HUGGING FACE CONFIG ----------
 
-OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+HF_MODEL = os.environ.get("HF_MODEL", "mistralai/Mistral-7B-Instruct-v0.1")
 
-# Stable OpenRouter model
-OPENROUTER_MODEL = os.environ.get(
-    "OPENROUTER_MODEL",
-    "openai/gpt-3.5-turbo"  # Changed from mistral-7b-instruct:free
-)
+def get_text_generator():
+    global text_generator
+    if text_generator is None and 'pipeline' in dir():
+        try:
+            logger.info("Loading Hugging Face model...")
+            text_generator = pipeline("text-generation", model=HF_MODEL, device_map="auto")
+        except Exception as e:
+            logger.error(f"Failed to load HF model: {e}")
+    return text_generator
 
 # ---------- REQUEST MODELS ----------
 
@@ -235,22 +244,11 @@ def get_friendly_transition() -> str:
 
 def get_ai_response(context: str, message: str, country: str = "", ministry: str = "", weather_context: str = "") -> str:
 
-    if not OPENROUTER_API_KEY:
-        logger.warning("OPENROUTER_API_KEY not set")
-        return "AI model API key not configured."
-
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://huggingface.co/spaces/voxenai/farm_assistant_chatbot",
-        "X-Title": "VoxenAI Farm Assistant",
-    }
-
     country_context = f" (focusing on {country}" + (f" guidelines from {ministry}" if ministry else "") + ")" if country else ""
     
     weather_note = ""
     if weather_context:
-        weather_note = "\n\nIMPORTANT: The farmer's current weather information is provided. Consider mentioning weather-specific advice (e.g., watering schedules, disease prevention during rainy seasons, etc.)."
+        weather_note = "\n\nWeather Info: " + weather_context.replace("\n", " ")
     
     system_prompt = (
         "You are a friendly and knowledgeable agricultural advisor specializing in coffee and cocoa farming in East Africa. "
@@ -264,39 +262,32 @@ def get_ai_response(context: str, message: str, country: str = "", ministry: str
         f"{weather_note}"
     )
 
-    user_content = f"Context from agricultural guidelines:\n{context}"
-    if weather_context:
-        user_content += f"\n\n{weather_context}"
-    user_content += f"\n\nFarmer's Question:\n{message}"
-
-    payload = {
-        "model": OPENROUTER_MODEL,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": user_content
-            }
-        ],
-        "temperature": 0.3,
-        "site_url": "https://huggingface.co/spaces/voxenai/farm_assistant_chatbot"
-    }
+    prompt = (
+        f"[CONTEXT]\n{context}\n\n"
+        f"[INSTRUCTION]\n{system_prompt}\n\n"
+        f"[QUESTION]\n{message}\n\n"
+        f"[ANSWER]\n"
+    )
 
     try:
-        logger.info(f"Calling OpenRouter with model: {OPENROUTER_MODEL}")
-        response = requests.post(
-            OPENROUTER_API_URL,
-            headers=headers,
-            json=payload,
-            timeout=60
+        logger.info(f"Calling Hugging Face with model: {HF_MODEL}")
+        
+        generator = get_text_generator()
+        if not generator:
+            return "Agricultural AI service is loading. Please try again in a moment."
+        
+        result = generator(
+            prompt,
+            max_length=512,
+            temperature=0.3,
+            do_sample=True,
+            top_p=0.9,
+            num_return_sequences=1
         )
 
-        logger.info(f"OpenRouter response status: {response.status_code}")
-        response.raise_for_status()
-
-        data = response.json()
-
-        ai_response = data["choices"][0]["message"]["content"].strip()
+        ai_response = result[0]["generated_text"].replace(prompt, "").strip()
+        
+        logger.info(f"HF response received successfully")
         
         # Add resource links if country is known
         if country:
