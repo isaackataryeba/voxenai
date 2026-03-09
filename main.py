@@ -242,7 +242,7 @@ def get_ai_response(context: str, message: str, country: str = "", ministry: str
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:7860",
+        "HTTP-Referer": "https://huggingface.co/spaces/voxenai/farm_assistant_chatbot",
         "X-Title": "VoxenAI Farm Assistant",
     }
 
