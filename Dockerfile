@@ -15,7 +15,7 @@ COPY . .
 EXPOSE 7860
 
 # Set the API key as environment variable
-ENV OPENROUTER_API_KEY="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"
+ENV OPENROUTER_API_KEY="sk-or"
 
 # Start FastAPI with uvicorn
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
