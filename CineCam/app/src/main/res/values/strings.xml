@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">CineCam</string>
+    <string name="permission_rationale">CineCam needs camera and microphone access to record video.</string>
+    <string name="grant_permissions">Grant Permissions</string>
+</resources>
