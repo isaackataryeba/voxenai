@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="cinecam_black">#FF000000</color>
+    <color name="cinecam_surface">#FF1A1A1A</color>
+    <color name="cinecam_accent">#FFFF8A00</color>
+    <color name="cinecam_zebra_warn">#FFFFD400</color>
+    <color name="cinecam_record_red">#FFE5342A</color>
+</resources>
